@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -65,6 +66,8 @@ import org.keycloak.broker.provider.IdpLinkAction;
 import org.keycloak.broker.provider.UserAuthenticationIdentityProvider;
 import org.keycloak.broker.provider.util.IdentityBrokerState;
 import org.keycloak.broker.saml.SAMLEndpoint;
+import org.keycloak.broker.saml.SamlIdpTestLoginManager;
+import org.keycloak.broker.saml.SamlIdpTestLoginResult;
 import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.common.ClientConnection;
 import org.keycloak.common.Profile;
@@ -472,6 +475,72 @@ public class IdentityBrokerService implements UserAuthenticationIdentityProvider
         }
 
         return identityProvider.callback(realmModel, this, event);
+    }
+
+    /**
+     * Experimental IDP_SAML_TEST feature. Browser entry point that creates a fresh authentication session bound to
+     * a built-in client, marks it as a test-login run (carrying the test id), and redirects the browser to the SAML
+     * IdP. The SAML round-trip result is captured by the broker without creating a user/session.
+     */
+    @GET
+    @NoCache
+    @Path("/{provider_alias}/test-login/{test_id}/start")
+    public Response startSamlTestLoginBrowser(@PathParam("provider_alias") String providerAlias,
+                                              @PathParam("test_id") String testId) {
+        checkRealm();
+        if (SamlIdpTestLoginManager.resolveTestLoginConfig(session, providerAlias) == null) {
+            throw new NotFoundException("SAML test login not available for identity provider [" + providerAlias + "].");
+        }
+        this.event.event(EventType.IDENTITY_PROVIDER_LOGIN).detail(Details.IDENTITY_PROVIDER, providerAlias);
+
+        SamlIdpTestLoginResult result = SamlIdpTestLoginManager.getResult(session, realmModel, providerAlias, testId);
+        if (result == null || result.isExpired()) {
+            throw new NotFoundException("SAML test login not found or expired.");
+        }
+        // Single-use: re-opening this URL must not fire another login at the identity provider.
+        if (!SamlIdpTestLoginManager.claimBrowserRun(session, testId, result)) {
+            throw new NotFoundException("SAML test login has already been started.");
+        }
+
+        ClientModel client = resolveTestLoginCarrierClient();
+
+        // Reuse the browser's existing root authentication session when there is one. Creating a fresh one with the
+        // browser cookie would overwrite AUTH_SESSION_ID for this realm and orphan any login already in flight in
+        // this browser, along with all of its tabs. Same reuse pattern as AuthorizationEndpointBase.
+        AuthenticationSessionManager authSessionManager = new AuthenticationSessionManager(session);
+        RootAuthenticationSessionModel rootAuthSession = authSessionManager.getCurrentRootAuthenticationSession(realmModel);
+        if (rootAuthSession == null) {
+            rootAuthSession = authSessionManager.createAuthenticationSession(realmModel, true);
+        }
+        AuthenticationSessionModel authSession = rootAuthSession.createAuthenticationSession(client);
+        authSession.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
+        authSession.setRedirectUri(session.getContext().getUri().getBaseUri().toString());
+        authSession.setClientNote(OIDCLoginProtocol.STATE_PARAM, UUID.randomUUID().toString());
+        authSession.setAuthNote(SamlIdpTestLoginManager.AUTH_NOTE_TEST_LOGIN_ID, testId);
+
+        ClientSessionCode<AuthenticationSessionModel> clientSessionCode = new ClientSessionCode<>(session, realmModel, authSession);
+        clientSessionCode.setAction(AuthenticationSessionModel.Action.AUTHENTICATE.name());
+        clientSessionCode.getOrGenerateCode();
+
+        return performClientInitiatedAccountLogin(providerAlias, clientSessionCode);
+    }
+
+    /**
+     * Experimental IDP_SAML_TEST feature. The test-login browser leg needs an authentication session, which requires a
+     * client to bind to. No user-chosen client is involved in a test login, so a built-in browser-capable client is
+     * borrowed as a carrier only — {@code account-console} first, which is the client the sibling account-linking flow
+     * uses and is created in every realm by {@code RealmManager}.
+     */
+    private ClientModel resolveTestLoginCarrierClient() {
+        for (String clientId : List.of(Constants.ACCOUNT_CONSOLE_CLIENT_ID, Constants.ACCOUNT_MANAGEMENT_CLIENT_ID,
+                Constants.ADMIN_CONSOLE_CLIENT_ID)) {
+            ClientModel client = realmModel.getClientByClientId(clientId);
+            if (client != null && client.isEnabled()) {
+                return client;
+            }
+        }
+        throw new IdentityBrokerException("No built-in client available in realm [" + realmModel.getName()
+                + "] to carry the SAML test login authentication session.");
     }
 
     @Path("{provider_alias}/token")

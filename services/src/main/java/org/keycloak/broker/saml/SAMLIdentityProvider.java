@@ -126,7 +126,13 @@ public class SAMLIdentityProvider extends AbstractIdentityProvider<SAMLIdentityP
 
     @Override
     public Object callback(RealmModel realm, AuthenticationCallback callback, EventBuilder event) {
-        return new SAMLEndpoint(session, this, getConfig(), callback, destinationValidator);
+        AuthenticationCallback effectiveCallback = callback;
+        if (SamlIdpTestLoginManager.isTestLoginActive(session, getConfig())) {
+            // Experimental IDP_SAML_TEST feature: for test-login sessions, capture the outcome and render a
+            // terminal page instead of creating/linking a user or session. Production logins pass straight through.
+            effectiveCallback = new SamlIdpTestLoginCallback(session, callback);
+        }
+        return new SAMLEndpoint(session, this, getConfig(), effectiveCallback, destinationValidator);
     }
 
     @Override

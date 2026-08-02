@@ -296,8 +296,19 @@ public class SAMLEndpoint {
             Response response = basicChecks(samlRequest, samlResponse, samlArt);
             if (response != null) return response;
             if (samlRequest != null) return handleSamlRequest(samlRequest, relayState);
-            if (samlArt != null) return handleSamlArt(samlArt, relayState, clientId);
-            else return handleSamlResponse(samlResponse, relayState, clientId);
+            Response result = (samlArt != null)
+                    ? handleSamlArt(samlArt, relayState, clientId)
+                    : handleSamlResponse(samlResponse, relayState, clientId);
+            // Experimental IDP_SAML_TEST feature: for test-login sessions, capture protocol-validation failures
+            // (where event.error(...) is set and the broker callback is never invoked) and render a terminal page.
+            // Returns null for non-test sessions and for the success/forwarded-error paths, leaving result unchanged.
+            Response captured = SamlIdpTestLoginManager.captureValidationFailureIfTestSession(
+                    session, config, event, samlResponse, isPostBinding(), result);
+            return captured != null ? captured : result;
+        }
+
+        protected boolean isPostBinding() {
+            return false;
         }
 
         protected Response handleSamlRequest(String samlRequest, String relayState) {
@@ -544,6 +555,10 @@ public class SAMLEndpoint {
                 }
                 session.getContext().setAuthenticationSession(authSession);
 
+                // Experimental IDP_SAML_TEST feature: carry the raw response so that the capturing callback can also
+                // produce diagnostics on the forwarded-IdP-error paths below. No-op for non-test sessions.
+                SamlIdpTestLoginManager.attachRawResponseForErrorCapture(session, authSession, samlResponse, isPostBinding());
+
                 if (! isSuccessfulSamlResponse(responseType)) {
                     String statusMessage = responseType.getStatus() == null || responseType.getStatus().getStatusMessage() == null ? Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR : responseType.getStatus().getStatusMessage();
                     if (Constants.AUTHENTICATION_EXPIRED_MESSAGE.equals(statusMessage)) {
@@ -711,6 +726,9 @@ public class SAMLEndpoint {
                     identity.setBrokerSessionId(config.getAlias() + "." + authn.getSessionIndex());
                  }
 
+                // Experimental IDP_SAML_TEST feature: carry the raw response to the capturing callback so it can
+                // extract safe diagnostics on the success path. No-op for non-test sessions.
+                SamlIdpTestLoginManager.attachRawResponse(authSession, identity, samlResponse, isPostBinding());
 
                 return callback.authenticated(identity);
             } catch (WebApplicationException e) {
@@ -843,6 +861,11 @@ public class SAMLEndpoint {
 
     protected class PostBinding extends Binding {
         @Override
+        protected boolean isPostBinding() {
+            return true;
+        }
+
+        @Override
         protected boolean containsUnencryptedSignature(SAMLDocumentHolder documentHolder) {
             NodeList nl = documentHolder.getSamlDocument().getElementsByTagNameNS(XMLSignature.XMLNS, "Signature");
             return (nl != null && nl.getLength() > 0);
@@ -921,6 +944,13 @@ public class SAMLEndpoint {
     }
 
     protected class ArtifactBinding extends Binding {
+
+        @Override
+        protected boolean isPostBinding() {
+            // The resolved artifact response is base64 encoded, so it has to be parsed like a POST binding payload.
+            return true;
+        }
+
 
         // artifact binding is processed twice, first with the art and then with the response, vars to store the first pass
         private Boolean containsUnencryptedSignature = null;

@@ -16,6 +16,8 @@
  */
 package org.keycloak.services.resources.admin;
 
+import java.net.URI;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -34,10 +36,13 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriBuilder;
 
 import org.keycloak.broker.provider.IdentityProvider;
 import org.keycloak.broker.provider.IdentityProviderFactory;
 import org.keycloak.broker.provider.IdentityProviderMapper;
+import org.keycloak.broker.saml.SamlIdpTestLoginManager;
+import org.keycloak.broker.saml.SamlIdpTestLoginResult;
 import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.common.Profile;
 import org.keycloak.events.admin.OperationType;
@@ -60,6 +65,7 @@ import org.keycloak.representations.idm.ManagementPermissionReference;
 import org.keycloak.services.ErrorResponse;
 import org.keycloak.services.resources.IdentityBrokerService;
 import org.keycloak.services.resources.KeycloakOpenAPI;
+import org.keycloak.services.resources.RealmsResource;
 import org.keycloak.services.resources.admin.fgap.AdminPermissionEvaluator;
 import org.keycloak.services.resources.admin.fgap.AdminPermissionManagement;
 import org.keycloak.services.resources.admin.fgap.AdminPermissions;
@@ -214,6 +220,81 @@ public class IdentityProviderResource {
         providerRep.setHideOnLogin(updated.isHideOnLogin());
     }
 
+
+    /**
+     * Experimental IDP_SAML_TEST feature. Starts a SAML identity provider test login: allocates a high-entropy,
+     * short-lived test id and returns the browser URL to open plus the URL to poll for the result. The result is
+     * stored in the single-use object store; no user or session is created in this realm. Returns 404 when the
+     * feature is disabled or the identity provider does not have test login enabled.
+     */
+    @POST
+    @NoCache
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("test-login")
+    @Tag(name = KeycloakOpenAPI.Admin.Tags.IDENTITY_PROVIDERS)
+    @Operation(summary = "Start a SAML identity provider test login")
+    public Response startSamlTestLogin() {
+        this.auth.realm().requireManageIdentityProviders();
+        String providerAlias = requireSamlTestLoginAlias();
+
+        int ttl = SamlIdpTestLoginManager.DEFAULT_RESULT_LIFESPAN_SECONDS;
+        String testId = SamlIdpTestLoginManager.generateTestId();
+        SamlIdpTestLoginManager.storePending(session, testId,
+                SamlIdpTestLoginResult.pending(realm, providerAlias, ttl));
+
+        URI loginUrl = UriBuilder.fromUri(session.getContext().getUri().getBaseUri())
+                .path(RealmsResource.class).path("{realm}").path("broker")
+                .path(providerAlias).path("test-login").path(testId).path("start")
+                .build(realm.getName());
+        URI pollUrl = session.getContext().getUri().getAbsolutePathBuilder().path(testId).build();
+
+        Map<String, Object> rep = new LinkedHashMap<>();
+        rep.put("testId", testId);
+        rep.put("loginUrl", loginUrl.toString());
+        rep.put("pollUrl", pollUrl.toString());
+        rep.put("expiresIn", ttl);
+
+        adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
+
+        return Response.ok(rep).build();
+    }
+
+    /**
+     * Experimental IDP_SAML_TEST feature. Returns the stored test-login result (pending, success, error or expired)
+     * and the captured SAML diagnostics. Returns 404 when the feature is disabled, when the identity provider does
+     * not have test login enabled, or when the test id is unknown or was not issued for this identity provider.
+     */
+    @GET
+    @NoCache
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("test-login/{test_id}")
+    @Tag(name = KeycloakOpenAPI.Admin.Tags.IDENTITY_PROVIDERS)
+    @Operation(summary = "Get the result of a SAML identity provider test login")
+    public Response getSamlTestLoginResult(@PathParam("test_id") String testId) {
+        this.auth.realm().requireManageIdentityProviders();
+        String providerAlias = requireSamlTestLoginAlias();
+
+        SamlIdpTestLoginResult result = SamlIdpTestLoginManager.getResult(session, realm, providerAlias, testId);
+        if (result == null) {
+            throw new NotFoundException("SAML test login not found.");
+        }
+        return Response.ok(SamlIdpTestLoginManager.toStatusRepresentation(testId, result)).build();
+    }
+
+    /**
+     * Resolves the alias of this identity provider, provided the experimental SAML test login is available for it.
+     * Every unavailable case is a 404 so that the reason is not disclosed.
+     */
+    private String requireSamlTestLoginAlias() {
+        if (identityProviderModel == null) {
+            throw new NotFoundException();
+        }
+        String alias = identityProviderModel.getAlias();
+        if (SamlIdpTestLoginManager.resolveTestLoginConfig(session, alias) == null) {
+            throw new NotFoundException("SAML test login not available for identity provider [" + alias + "].");
+        }
+        return alias;
+    }
 
     private IdentityProviderFactory<?> getIdentityProviderFactory() {
         String providerId = identityProviderModel.getProviderId();

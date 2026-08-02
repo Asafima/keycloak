@@ -163,3 +163,54 @@ http[s]://{host:port}{kc_realms_path}/${realm-name}/broker/{broker-alias}/login
 Adding a query parameter named `login_hint` to this URL adds the parameter's value to SAML request as a Subject attribute. If this query parameter is empty, {project_name} does not add a subject to the request.
 
 Enable the "Pass subject" option to send the subject in SAML requests.
+
+[[_identity_broker_saml_test_login]]
+==== Test login for SAML identity providers (experimental)
+
+[NOTE]
+====
+This is an experimental feature gated by the `IDP_SAML_TEST` server feature, which is disabled by default. Behavior and endpoint contracts may change. Enable it with `--features=idp-saml-test`. Production SAML login behavior is unchanged when the feature is disabled or when test login is not enabled on the identity provider.
+====
+
+When the `IDP_SAML_TEST` feature is enabled, you can enable a per-identity-provider *Enable test login* switch in the SAML identity provider settings. This lets an administrator start a SAML "test login" for a configured SAML identity provider, have a browser complete the real SAML round trip, and read back a short-lived, structured diagnostic result. The test flow never creates users, links federated identities, runs required actions, or creates authenticated user or client sessions.
+
+Starting and polling a test run are admin operations and live on the Admin REST API, since only an administrator with permission to manage the identity provider should be able to trigger a round trip against it or read back its result. The browser leg stays on the public broker path, because a top-level browser navigation cannot carry a bearer token. All three endpoints return `404 Not Found` when the feature is disabled or test login is not enabled for the identity provider.
+
+* Start a test login. Requires the `manage-identity-providers` permission on the realm. Allocates a high-entropy, short-lived test id and returns the browser URL to open and the URL to poll for the result:
++
+[source,subs=+attributes]
+----
+POST http[s]://{host:port}{kc_admins_path}/realms/{realm-name}/identity-provider/instances/{broker-alias}/test-login
+----
++
+The JSON response contains `testId`, `loginUrl`, `pollUrl`, and `expiresIn` (seconds).
+
+* Browser entry point. Open `loginUrl` in a browser (for example, a popup). {project_name} starts the SAML login and, when the round trip completes, captures the outcome and renders a terminal page:
++
+[source,subs=+attributes]
+----
+GET http[s]://{host:port}{kc_realms_path}/{realm-name}/broker/{broker-alias}/test-login/{testId}/start
+----
++
+This URL is guarded only by the opaque, high-entropy `testId` rather than by a bearer token, since a browser cannot present an `Authorization` header on a top-level navigation. It is also single-use: opening it a second time for the same `testId` fails.
+
+* Poll the result. Requires the same `manage-identity-providers` permission:
++
+[source,subs=+attributes]
+----
+GET http[s]://{host:port}{kc_admins_path}/realms/{realm-name}/identity-provider/instances/{broker-alias}/test-login/{testId}
+----
++
+The JSON response has a `status` of `pending`, `success`, or `error`, an optional human-readable `message`, and a `saml` object with safe diagnostics parsed from the SAML response (status code and message, issuer, destination, audiences, NameID and format, whether a response or assertion signature was present, whether the response was validated, encrypted flag, and assertion attributes). Once the result expires it is removed from the store, so the endpoint then returns `404 Not Found` rather than a status. The raw SAML XML is never stored, and long values are truncated.
+
+[IMPORTANT]
+====
+When `signatureValidated` is `false`, the response was rejected by {project_name} and every other field in the `saml` object was parsed from that rejected response. Those values are influenced by whoever sent the response and must not be read as trustworthy statements about the identity provider. The `responseSignaturePresent` and `assertionSignaturePresent` fields report only that a signature element was present, never that it was valid.
+====
+
+[NOTE]
+====
+The `saml` diagnostics carry the SAML subject `NameID` and attribute values verbatim, truncated at 512 characters. Treat the `testId` and the poll response as sensitive, the same as you would a credential, and avoid logging them.
+====
+
+The test id is a high-entropy opaque value (not the caller-chosen state) and is bound to both the realm and the identity provider alias it was created for; it cannot be replayed against a different realm or a different identity provider. The result is stored in the short-lived, cluster-aware single-use object store with a few-minutes TTL, after which it expires automatically.

@@ -1,0 +1,60 @@
+{
+  "realm": "saml-test-provider",
+  "enabled": true,
+  "sslRequired": "external",
+  "clients": [
+    {
+      "clientId": "CONSUMER_ROOT/auth/realms/saml-test-consumer",
+      "name": "saml-test-broker-sp",
+      "enabled": true,
+      "protocol": "saml",
+      "fullScopeAllowed": true,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "CONSUMER_ROOT/auth/realms/saml-test-consumer/broker/saml/endpoint"
+      ],
+      "attributes": {
+        "saml.authnstatement": "true",
+        "saml_assertion_consumer_url_post": "CONSUMER_ROOT/auth/realms/saml-test-consumer/broker/saml/endpoint",
+        "saml_single_logout_service_url_post": "CONSUMER_ROOT/auth/realms/saml-test-consumer/broker/saml/endpoint",
+        "saml_force_name_id_format": "true",
+        "saml_name_id_format": "username",
+        "saml.assertion.signature": "false",
+        "saml.server.signature": "false",
+        "saml.client.signature": "false",
+        "saml.encrypt": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "attribute.name": "urn:oid:1.2.840.113549.1.9.1",
+            "attribute.nameformat": "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+            "friendly.name": "email"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "saml-test-user",
+      "enabled": true,
+      "email": "saml-test-user@keycloak.org",
+      "emailVerified": true,
+      "firstName": "Saml",
+      "lastName": "Tester",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

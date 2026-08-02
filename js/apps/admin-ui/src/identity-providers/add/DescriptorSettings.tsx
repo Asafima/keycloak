@@ -10,6 +10,7 @@ import {
   TextControl,
 } from "@keycloak/keycloak-ui-shared";
 import { DefaultSwitchControl } from "../../components/SwitchControl";
+import useIsFeatureEnabled, { Feature } from "../../utils/useIsFeatureEnabled";
 
 import "./discovery-settings.css";
 
@@ -22,6 +23,8 @@ const Fields = ({ readOnly }: DescriptorSettingsProps) => {
 
   const form = useFormContext<IdentityProviderRepresentation>();
   const { control } = form;
+
+  const isFeatureEnabled = useIsFeatureEnabled();
 
   const wantAuthnSigned = useWatch({
     control,
@@ -322,6 +325,16 @@ const Fields = ({ readOnly }: DescriptorSettingsProps) => {
           isDisabled={readOnly}
           stringify
         />
+        {/* Experimental IDP_SAML_TEST feature: opt-in switch enabling the SAML test login endpoints for this IdP. */}
+        {isFeatureEnabled(Feature.IdpSamlTest) && (
+          <DefaultSwitchControl
+            name="config.testLoginEnabled"
+            label={t("samlTestLoginEnabled")}
+            labelIcon={t("samlTestLoginEnabledHelp")}
+            isDisabled={readOnly}
+            stringify
+          />
+        )}
         <NumberControl
           name="config.allowedClockSkew"
           label={t("allowedClockSkew")}

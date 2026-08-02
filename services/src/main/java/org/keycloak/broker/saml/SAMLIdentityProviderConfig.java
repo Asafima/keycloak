@@ -69,6 +69,7 @@ public class SAMLIdentityProviderConfig extends IdentityProviderModel {
     public static final String ATTRIBUTE_CONSUMING_SERVICE_NAME = "attributeConsumingServiceName";
     public static final String USE_METADATA_DESCRIPTOR_URL = "useMetadataDescriptorUrl";
     public static final String DESCRIPTOR_CACHE_SECONDS = "descriptorCacheSeconds";
+    public static final String TEST_LOGIN_ENABLED = "testLoginEnabled";
 
     public SAMLIdentityProviderConfig() {
     }
@@ -451,6 +452,18 @@ public class SAMLIdentityProviderConfig extends IdentityProviderModel {
         } else {
             getConfig().put(DESCRIPTOR_CACHE_SECONDS, String.valueOf(descriptorCacheSeconds));
         }
+    }
+
+    /**
+     * Whether the experimental SAML identity provider test login endpoints are enabled for this IdP.
+     * Only takes effect when the {@code IDP_SAML_TEST} server feature is enabled. Default {@code false}.
+     */
+    public boolean isTestLoginEnabled() {
+        return Boolean.parseBoolean(getConfig().get(TEST_LOGIN_ENABLED));
+    }
+
+    public void setTestLoginEnabled(boolean testLoginEnabled) {
+        getConfig().put(TEST_LOGIN_ENABLED, String.valueOf(testLoginEnabled));
     }
 
     @Override

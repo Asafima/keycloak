@@ -1,0 +1,65 @@
+{
+  "realm": "saml-test-consumer",
+  "enabled": true,
+  "sslRequired": "external",
+  "resetPasswordAllowed": true,
+  "identityProviders": [
+    {
+      "alias": "saml",
+      "displayName": "saml",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "config": {
+        "singleSignOnServiceUrl": "PROVIDER_ROOT/auth/realms/saml-test-provider/protocol/saml",
+        "singleLogoutServiceUrl": "PROVIDER_ROOT/auth/realms/saml-test-provider/protocol/saml",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "postBindingAuthnRequest": "false",
+        "postBindingResponse": "true",
+        "postBindingLogout": "false",
+        "validateSignature": "false",
+        "wantAuthnRequestsSigned": "false",
+        "wantAssertionsSigned": "false",
+        "signatureAlgorithm": "RSA_SHA256",
+        "backchannelSupported": "false",
+        "testLoginEnabled": "true"
+      }
+    },
+    {
+      "alias": "saml-other",
+      "displayName": "saml-other",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "config": {
+        "singleSignOnServiceUrl": "PROVIDER_ROOT/auth/realms/saml-test-provider/protocol/saml",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "postBindingAuthnRequest": "false",
+        "postBindingResponse": "true",
+        "validateSignature": "false",
+        "wantAuthnRequestsSigned": "false",
+        "backchannelSupported": "false",
+        "testLoginEnabled": "true"
+      }
+    },
+    {
+      "alias": "saml-no-test",
+      "displayName": "saml-no-test",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "config": {
+        "singleSignOnServiceUrl": "PROVIDER_ROOT/auth/realms/saml-test-provider/protocol/saml",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "postBindingAuthnRequest": "false",
+        "postBindingResponse": "true",
+        "validateSignature": "false",
+        "wantAuthnRequestsSigned": "false",
+        "backchannelSupported": "false",
+        "testLoginEnabled": "false"
+      }
+    }
+  ]
+}
